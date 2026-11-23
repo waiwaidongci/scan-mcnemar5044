@@ -6,12 +6,17 @@ def dataset(item):
             'checksum': item.checksum, 'author': item.author, 'created_at': iso(item.created_at)}
 
 
-def run(item, detail=False):
+def run(item, detail=False, active_plan_ids=None):
     item_view = {'id': item.id, 'dataset_id': item.dataset_id, 'name': item.name, 'status': item.status,
                  'author': item.author, 'review': item.review, 'decision': item.decision,
                  'created_at': iso(item.created_at), 'finished_at': iso(item.finished_at),
                  'scheduled_at': iso(item.scheduled_at), 'schedule_id': item.schedule_id,
+                 'plan_id': item.plan_id, 'plan_version': item.plan_version,
                  'has_export': bool(item.export_file), 'error': item.error}
+    if item.plan_id is not None:
+        # 计划运行：只有其计划仍是当前生效版本时，结果才有效。
+        item_view['plan_active'] = bool(active_plan_ids
+                                        and active_plan_ids.get(item.dataset_id) == item.plan_id)
     if detail:
         item_view.update(params=item.params, result=item.result, review_note=item.review_note)
     return item_view

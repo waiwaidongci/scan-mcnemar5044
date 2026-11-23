@@ -11,11 +11,11 @@ import {date, value} from '../utils/format.js';
 export async function results(route, refresh) {
   const {spec,runs,datasets} = workspace;
   const id = route.id || runs[0]?.id;
-  if (!id) return panel(spec.pages[3],empty('还没有可查看的运行结果。','#run','前往运行'));
+  if (!id) return panel('验收结果',empty('还没有可查看的运行结果。','#run','前往运行'));
   const job = await workspace.getRun(id);
   const source = datasets.find(item => item.id === job.dataset_id);
   const message = feedback();
-  const finished = item => item.status === 'complete' || item.status === 'failed';
+  const finished = item => ['complete', 'failed', 'superseded'].includes(item.status);
   if (!finished(job)) {
     const original = location.hash;
     const status = el('p',{role:'status'},'后台正在计算，完成后会自动展示。');
@@ -31,6 +31,16 @@ export async function results(route, refresh) {
     el('select',{id:'run-picker',onChange:event=>{location.hash=`#results/${event.target.value}`;}},
       (runs.some(item=>item.id===job.id) ? runs : [job,...runs]).map(item=>el('option',{value:item.id,selected:item.id===job.id},item.name))));
   const result = job.result;
+  const stale = job.status === 'superseded' || job.plan_active === false;
+  if (stale) {
+    return el('div',{},el('div',{class:'two-col'},el('div',{class:'wide-panel'},
+      panel(job.name,pill('旧计划作废','superseded'),
+        p(job.error || '票量计划已更正为新版本，旧计划结果不生效，页面与下载均不提供该结果。','feedback'),
+        link('返回票量凑批查看最新版本',`#quota/${job.dataset_id}`,{class:'quiet'}))),
+      el('aside',{class:'sidebar-panel'},panel('运行来源',history,
+        source && link(source.name,`#inputs/${source.id}`),p(date(job.finished_at),'subtle'),
+        job.plan_version && el('dl',{class:'dictionary'},el('div',{},el('dt',{},'计划版本'),el('dd',{},`v${job.plan_version}`)))))));
+  }
   const analysis = result ? el('section',{class:'analysis','data-testid':'analysis-complete'},
     el('div',{class:'result-head'},p(job.name,'eyeline'),h(2,result.headline),p(result.note,'intro-copy'),
       el('div',{class:'actions'},pill(STATUS[job.status],job.status),download,message)),
@@ -39,7 +49,9 @@ export async function results(route, refresh) {
     (result.sections || []).map(item=>panel(item.title,p(item.text))),
     result.tables.map(item=>panel(item.title,table(item.columns,item.rows,{caption:item.title}))))
     : panel(job.name,pill(STATUS[job.status],job.status),p(job.error,'feedback'),link('返回调整参数',`#run/${job.dataset_id}`,{class:'quiet'}));
-  const inputs = spec.params.map(param=>el('div',{},el('dt',{},param.label),el('dd',{},value(job.params[param.key]))));
+  const inputs = job.plan_id
+    ? [el('div',{},el('dt',{},'计划版本'),el('dd',{},`v${job.plan_version}`))]
+    : spec.params.map(param=>el('div',{},el('dt',{},param.label),el('dd',{},value(job.params[param.key]))));
   return el('div',{},el('div',{class:'two-col'},el('div',{class:'wide-panel'},analysis),
     el('aside',{class:'sidebar-panel'},panel('运行来源',history,
       source && link(source.name,`#inputs/${source.id}`),p(date(job.finished_at),'subtle'),

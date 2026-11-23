@@ -18,5 +18,9 @@ export const workspace = {
   deliveries: () => call('/deliveries'),
   schedule: data => call('/schedules', data),
   disable: id => call(`/schedules/${id}/disable`, {}),
+  plans: datasetId => call(`/quota-plans?dataset_id=${datasetId}`),
+  activePlan: datasetId => call(`/quota-plans/active?dataset_id=${datasetId}`),
+  publishPlan: data => call('/quota-plans', data),
+  startQuotaRun: (planId, data) => call(`/quota-plans/${planId}/runs`, data),
   download: (path, filename) => saveFile(path, session.token, filename),
 };

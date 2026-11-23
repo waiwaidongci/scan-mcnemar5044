@@ -14,6 +14,15 @@ class Upload(Request):
     filename: str = Field(min_length=1, max_length=160)
     csv_text: str = Field(min_length=1, max_length=2_000_000)
 
+class QuotaPlanRequest(Request):
+    dataset_id: int = Field(gt=0)
+    name: str = Field(default='票量凑批', min_length=1, max_length=120)
+    quotas: dict = Field(min_length=1)
+
+class QuotaRunRequest(Request):
+    dataset_id: int = Field(gt=0)
+    name: str = Field(default='票量凑批', min_length=1, max_length=120)
+
 class RunRequest(Request):
     dataset_id: int = Field(gt=0)
     name: str = Field(min_length=1, max_length=120)

@@ -4,10 +4,12 @@ from sqlalchemy import and_, or_, select
 from src.config.database import Session
 from src.constants.enums import Status
 from src.domain.analysis import analyze
+from src.domain.quota import select_quota
 from src.domain.spec import SPEC
 from src.models.jobs import Delivery, Run, Schedule
 from src.models.source import Dataset
 from src.services.audit import record
+from src.services.plans import SUPERSEDED_MESSAGE, active_plan
 from src.utils.exports import write_report
 from src.utils.time import now
 
@@ -48,6 +50,15 @@ def claim():
         job = db.scalar(query.order_by(Run.id).limit(1).with_for_update(skip_locked=True))
         if job is None:
             return None
+        # 租约领取瞬间再核对一次计划版本，避免作废后仍被重跑拉起。
+        if job.plan_id is not None:
+            plan = active_plan(db, job.dataset_id)
+            if plan is None or plan.id != job.plan_id:
+                job.status = Status.SUPERSEDED
+                job.error = SUPERSEDED_MESSAGE
+                job.lease_until = None
+                record(db, 'worker', 'analysis.superseded', job.id, reason=SUPERSEDED_MESSAGE)
+                return None
         if job.attempt >= 3:
             job.status = Status.FAILED
             job.error = '后台进程多次中断，请发起新的运行'
@@ -58,15 +69,18 @@ def claim():
         job.attempt += 1
         job.lease_until = stamp + timedelta(minutes=3)
         records = db.get(Dataset, job.dataset_id).rows
-        return job.id, job.attempt, records, job.params
+        return job.id, job.attempt, records, job.params, job.plan_id
 
 
 def execute(lease):
-    job_id, attempt, rows, params = lease
-    result = export = failure = None
+    job_id, attempt, rows, params, plan_id = lease
+    result = failure = None
     try:
-        result = analyze(rows, params)
-        export = write_report(job_id, attempt, result)
+        # 票量凑批运行携带 plan_id 与 quotas；统计验收运行走原有 McNemar 口径。
+        if plan_id is not None:
+            result = select_quota(rows, params)
+        else:
+            result = analyze(rows, params)
     except ValueError as error:
         failure = str(error)[:500]
     except Exception:
@@ -76,6 +90,20 @@ def execute(lease):
         job = db.get(Run, job_id, with_for_update=True)
         if job.attempt != attempt or job.status != Status.RUNNING:
             return
+        # 计算期间计划被更正：本结果属于旧计划，一律丢弃，不写文件、不产生可下载结果。
+        if job.plan_id is not None:
+            plan = active_plan(db, job.dataset_id)
+            if plan is None or plan.id != job.plan_id:
+                job.status = Status.SUPERSEDED
+                job.error = SUPERSEDED_MESSAGE
+                job.result = None
+                job.export_file = None
+                job.lease_until = None
+                job.finished_at = now()
+                record(db, 'worker', 'analysis.superseded', job.id, reason=SUPERSEDED_MESSAGE)
+                return
+        # 通过版本复核后才落盘，保证页面与下载来自同一份生效结果。
+        export = write_report(job_id, attempt, result) if not failure else None
         job.lease_until = None
         job.finished_at = now()
         job.status = Status.FAILED if failure else Status.COMPLETE

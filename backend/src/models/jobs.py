@@ -18,6 +18,25 @@ class Schedule(Base):
     enabled: Mapped[bool] = mapped_column(default=True)
     author: Mapped[str] = mapped_column(String(64))
 
+
+class QuotaPlan(Base):
+    """财务为各扫描批次、各票种分别定票量的计划，按版本递增。
+
+    每次更正都会产生新版本；旧版本下仍在排队或计算中的运行会被作废，
+    已完成但属于旧版本的运行不再对外提供结果与下载。
+    """
+
+    __tablename__ = 'quota_plans'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    version: Mapped[int] = mapped_column(unique=True)
+    dataset_id: Mapped[int] = mapped_column(ForeignKey('datasets.id'))
+    quotas: Mapped[dict] = mapped_column(JSON)
+    superseded: Mapped[bool] = mapped_column(default=False, index=True)
+    author: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(default=now)
+
+
 class Run(Base):
     __tablename__ = 'runs'
     __table_args__ = (UniqueConstraint('schedule_id', 'scheduled_at'),)
@@ -25,6 +44,8 @@ class Run(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     dataset_id: Mapped[int] = mapped_column(ForeignKey('datasets.id'))
     schedule_id: Mapped[int | None] = mapped_column(ForeignKey('schedules.id'))
+    plan_id: Mapped[int | None] = mapped_column(ForeignKey('quota_plans.id'), index=True)
+    plan_version: Mapped[int | None]
     scheduled_at: Mapped[datetime | None]
     name: Mapped[str] = mapped_column(String(120))
     status: Mapped[str] = mapped_column(String(20), default=Status.QUEUED, index=True)
